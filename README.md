@@ -41,7 +41,7 @@ All skills are invoked from Claude Code with the project root (`enmgt5400-projec
 2. The `dev-workflow` MCP server from Project 2 configured (see [MCP Server Configuration](#mcp-server-configuration) below) — required for `/review-asic-tool`
 3. Open this project directory in Claude Code:
    ```
-   cd "C:\Users\parke\OneDrive - Cornell University\Desktop\ENMGT 5400\enmgt5400-project3"
+   cd enmgt5400-project3
    claude
    ```
 
@@ -233,7 +233,7 @@ The server is located in `enmgt5400-project2/` and configured for Claude Code wi
       "args": [
         "run",
         "--directory",
-        "C:\\Users\\parke\\OneDrive - Cornell University\\Desktop\\ENMGT 5400\\enmgt5400-project2",
+        "../enmgt5400-project2",
         "python",
         "server.py"
       ]

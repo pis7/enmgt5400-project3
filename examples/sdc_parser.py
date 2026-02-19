@@ -1,306 +1,906 @@
-"""
-SDC (Synopsys Design Constraints) file parser.
+"""SDC (Synopsys Design Constraints) parser for ASIC timing constraint files.
 
-Parses .sdc timing constraint files and returns structured Python objects.
-Handles common SDC commands used in ASIC synthesis and place-and-route flows.
+This module parses Tcl-based SDC files produced by synthesis and place-and-route
+tools (Synopsys Design Compiler, Cadence Genus, etc.) into structured Python data
+models.  Unsupported or unrecognised commands are stored verbatim in
+``SDCConstraintSet.raw_commands`` for downstream inspection.
+
+CLI example::
+
+    python sdc_parser.py --input top.sdc --format summary --verbose
+    python sdc_parser.py --input top.sdc --format json --output constraints.json --strict
+
+Representative SDC syntax::
+
+    create_clock -name clk_sys -period 10.0 -waveform {0 5} [get_ports clk]
+    set_input_delay  -clock clk_sys -max 2.5 [get_ports {data_in[*]}]
+    set_output_delay -clock clk_sys -max 3.0 [get_ports out_valid]
+    set_false_path   -from [get_clocks clk_a] -to [get_clocks clk_b]
+    set_multicycle_path 2 -setup -from [get_pins u_core/q] -to [get_pins u_reg/d]
+
+Example parsed output::
+
+    SDCConstraintSet(clocks=1, io_delays=2, exceptions=2, raw_commands=2)
+    ClockConstraint(name='clk_sys', period=10.0ns, waveform=[0.0, 5.0], source='clk')
+    IODelay(pin='data_in[*]', clock='clk_sys', delay_value=2.5ns, type='input', -max)
+    TimingException(type='false_path', from=['clk_a'], to=['clk_b'])
+    TimingException(type='multicycle_path', from=['u_core/q'], to=['u_reg/d'], value=2)
 """
+
 from __future__ import annotations
 
-import re
+import argparse
+import json
 import logging
+import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Iterable, Iterator
+
+__all__ = [
+    "ClockConstraint",
+    "IODelay",
+    "TimingException",
+    "SDCConstraintSet",
+    "ParseError",
+    "SDCParser",
+]
 
 logger = logging.getLogger(__name__)
 
 
+# ─── Data Models ──────────────────────────────────────────────────────────────
+
+
 @dataclass
 class ClockConstraint:
+    """A single clock definition from a ``create_clock`` command.
+
+    Attributes:
+        name: Clock identifier referenced by other SDC commands.
+        period: Clock period in nanoseconds; must be positive.
+        waveform: ``[rise_edge_ns, fall_edge_ns]`` within one period.
+        source: Port or pin name on which the clock is defined.
+    """
+
     name: str
     period: float
-    waveform: tuple[float, float] = (0.0, 0.0)
-    source: str = ""
+    waveform: list[float]
+    source: str
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.period <= 0:
-            raise ValueError(f"Clock period must be positive, got {self.period}")
-        if not self.waveform:
-            self.waveform = (0.0, self.period / 2)
+            raise ValueError(
+                f"Clock '{self.name}': period must be > 0, got {self.period}"
+            )
+        if self.waveform and len(self.waveform) != 2:
+            raise ValueError(
+                f"Clock '{self.name}': waveform must have exactly 2 edges, "
+                f"got {self.waveform}"
+            )
+
+    def __repr__(self) -> str:
+        return (
+            f"ClockConstraint(name={self.name!r}, period={self.period}ns, "
+            f"waveform={self.waveform}, source={self.source!r})"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to a JSON-compatible dictionary."""
+        return {
+            "name": self.name,
+            "period_ns": self.period,
+            "waveform": self.waveform,
+            "source": self.source,
+        }
 
 
 @dataclass
 class IODelay:
+    """An input or output delay constraint.
+
+    Covers ``set_input_delay`` and ``set_output_delay`` commands.
+
+    Attributes:
+        pin: Port or pin name the delay applies to.
+        clock: Reference clock name.
+        delay_value: Delay magnitude in nanoseconds.
+        delay_type: ``"input"`` or ``"output"``.
+        min_delay: ``True`` when the ``-min`` flag was present.
+        max_delay: ``True`` when the ``-max`` flag was present.
+    """
+
     pin: str
     clock: str
     delay_value: float
-    delay_type: str = "input"
-    min_delay: float | None = None
-    max_delay: float | None = None
+    delay_type: str
+    min_delay: bool
+    max_delay: bool
+
+    def __post_init__(self) -> None:
+        if self.delay_type not in {"input", "output"}:
+            raise ValueError(
+                f"delay_type must be 'input' or 'output', got {self.delay_type!r}"
+            )
+
+    def __repr__(self) -> str:
+        bound = "-max" if self.max_delay else ("-min" if self.min_delay else "")
+        suffix = f", {bound}" if bound else ""
+        return (
+            f"IODelay(pin={self.pin!r}, clock={self.clock!r}, "
+            f"delay_value={self.delay_value}ns, type={self.delay_type!r}{suffix})"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to a JSON-compatible dictionary."""
+        return {
+            "pin": self.pin,
+            "clock": self.clock,
+            "delay_value_ns": self.delay_value,
+            "delay_type": self.delay_type,
+            "min_delay": self.min_delay,
+            "max_delay": self.max_delay,
+        }
 
 
 @dataclass
 class TimingException:
+    """A timing path exception.
+
+    Covers ``set_false_path``, ``set_multicycle_path``, ``set_max_delay``,
+    and ``set_min_delay``.
+
+    Attributes:
+        exception_type: One of ``"false_path"``, ``"multicycle_path"``,
+            ``"max_delay"``, or ``"min_delay"``.
+        from_list: Source endpoint names (clocks, pins, or ports).
+        to_list: Destination endpoint names.
+        value: Cycle count for multicycle paths; delay in ns for max/min
+            delay constraints; ``None`` for false paths.
+    """
+
     exception_type: str
     from_list: list[str] = field(default_factory=list)
     to_list: list[str] = field(default_factory=list)
-    value: float | None = None
+    value: float | int | None = None
+
+    _VALID_TYPES: frozenset[str] = field(
+        default=frozenset({"false_path", "multicycle_path", "max_delay", "min_delay"}),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        valid = {"false_path", "multicycle_path", "max_delay", "min_delay"}
+        if self.exception_type not in valid:
+            raise ValueError(
+                f"exception_type must be one of {sorted(valid)}, "
+                f"got {self.exception_type!r}"
+            )
+
+    def __repr__(self) -> str:
+        val_str = f", value={self.value}" if self.value is not None else ""
+        return (
+            f"TimingException(type={self.exception_type!r}, "
+            f"from={self.from_list!r}, to={self.to_list!r}{val_str})"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to a JSON-compatible dictionary."""
+        return {
+            "exception_type": self.exception_type,
+            "from_list": self.from_list,
+            "to_list": self.to_list,
+            "value": self.value,
+        }
 
 
 @dataclass
 class SDCConstraintSet:
+    """Top-level container for all constraints parsed from an SDC file.
+
+    Attributes:
+        clocks: Clock definitions from ``create_clock``.
+        io_delays: Input and output delay constraints.
+        exceptions: Timing path exceptions (false paths, multicycle, etc.).
+        raw_commands: Verbatim command strings for unrecognised commands.
+    """
+
     clocks: list[ClockConstraint] = field(default_factory=list)
     io_delays: list[IODelay] = field(default_factory=list)
     exceptions: list[TimingException] = field(default_factory=list)
     raw_commands: list[str] = field(default_factory=list)
 
+    def __repr__(self) -> str:
+        return (
+            f"SDCConstraintSet(clocks={len(self.clocks)}, "
+            f"io_delays={len(self.io_delays)}, "
+            f"exceptions={len(self.exceptions)}, "
+            f"raw_commands={len(self.raw_commands)})"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to a JSON-compatible dictionary."""
+        return {
+            "clocks": [c.to_dict() for c in self.clocks],
+            "io_delays": [d.to_dict() for d in self.io_delays],
+            "exceptions": [e.to_dict() for e in self.exceptions],
+            "raw_commands": self.raw_commands,
+        }
+
+
+# ─── Exception ────────────────────────────────────────────────────────────────
+
+
+class ParseError(Exception):
+    """Raised when a malformed SDC command is encountered in strict mode.
+
+    Attributes:
+        line_num: 1-based line number in the source file.
+        line_text: Raw text of the offending command.
+        message: Human-readable description of the problem.
+    """
+
+    def __init__(self, line_num: int, line_text: str, message: str) -> None:
+        self.line_num = line_num
+        self.line_text = line_text
+        self.message = message
+        super().__init__(f"Line {line_num}: {message} — {line_text!r}")
+
+
+# ─── Module-level regex ────────────────────────────────────────────────────────
+
+# Matches common Tcl object-collection commands used in SDC constraints.
+_TCL_COLLECTION_RE = re.compile(
+    r"^\[\s*(?:get_ports|get_pins|get_nets|get_cells|get_clocks|get_lib_cells)"
+    r"\s+(.*?)\s*\]$",
+    re.DOTALL,
+)
+
+
+# ─── Parser ───────────────────────────────────────────────────────────────────
+
 
 class SDCParser:
-    def __init__(self, strict=False):
-        self.strict = strict
-        self.result = SDCConstraintSet()
-        self._line_num = 0
+    """Parser for Synopsys Design Constraints (SDC) files.
 
-    def parse_file(self, path):
-        text = open(str(path), "r").read()
-        return self.parse_string(text)
+    Recognises ``create_clock``, ``set_input_delay``, ``set_output_delay``,
+    ``set_false_path``, ``set_multicycle_path``, ``set_max_delay``, and
+    ``set_min_delay``.  All other commands are stored verbatim in
+    ``SDCConstraintSet.raw_commands``.
 
-    def parse_string(self, content):
-        self.result = SDCConstraintSet()
-        lines = self._join_continuation_lines(content)
+    Backslash line continuation and inline ``#`` comments are handled
+    transparently during preprocessing.  The parser reads input incrementally
+    (line by line) to support large EDA-generated SDC files.
 
-        for i, line in enumerate(lines):
-            self._line_num = i + 1
-            line = line.strip()
+    Args:
+        strict: When ``True``, raises :class:`ParseError` on the first
+            malformed command.  When ``False`` (default), logs a warning
+            and continues parsing.
+    """
 
-            if not line or line.startswith("#"):
-                continue
-
-            self.result.raw_commands.append(line)
-
-            if line.startswith("create_clock"):
-                self._parse_create_clock(line)
-            elif line.startswith("set_input_delay"):
-                self._parse_io_delay(line, "input")
-            elif line.startswith("set_output_delay"):
-                self._parse_io_delay(line, "output")
-            elif line.startswith("set_false_path"):
-                self._parse_false_path(line)
-            elif line.startswith("set_multicycle_path"):
-                self._parse_multicycle_path(line)
-            elif line.startswith("set_max_delay"):
-                self._parse_max_min_delay(line, "max")
-            elif line.startswith("set_min_delay"):
-                self._parse_max_min_delay(line, "min")
-            elif line.startswith("set_clock_groups"):
-                self._parse_clock_groups(line)
-            elif line.startswith("set_clock_uncertainty"):
-                self._parse_clock_uncertainty(line)
-            elif line.startswith("set_load"):
-                pass
-            elif line.startswith("set_driving_cell"):
-                pass
-            else:
-                if self.strict:
-                    raise ValueError(f"Unknown SDC command at line {self._line_num}: {line[:60]}")
-                else:
-                    logger.warning(f"Skipping unknown command at line {self._line_num}: {line[:60]}")
-
-        return self.result
-
-    def _join_continuation_lines(self, content):
-        joined = content.replace("\\\n", " ").replace("\\\r\n", " ")
-        return joined.splitlines()
-
-    def _parse_create_clock(self, line):
-        period_match = re.search(r"-period\s+(\S+)", line)
-        name_match = re.search(r"-name\s+(\S+)", line)
-        waveform_match = re.search(r"-waveform\s+\{([^}]+)\}", line)
-        source_match = re.search(r"\[get_ports\s+(\S+?)\]", line)
-        if not source_match:
-            source_match = re.search(r"\[get_pins\s+(\S+?)\]", line)
-
-        if not period_match:
-            if self.strict:
-                raise ValueError(f"create_clock missing -period at line {self._line_num}")
-            logger.warning(f"create_clock missing -period at line {self._line_num}")
-            return
-
-        period = float(period_match.group(1))
-        name = name_match.group(1) if name_match else ""
-        source = source_match.group(1) if source_match else ""
-
-        waveform = (0.0, period / 2)
-        if waveform_match:
-            parts = waveform_match.group(1).split()
-            if len(parts) == 2:
-                waveform = (float(parts[0]), float(parts[1]))
-
-        if not name and source:
-            name = source
-
-        clock = ClockConstraint(
-            name=name,
-            period=period,
-            waveform=waveform,
-            source=source,
-        )
-        self.result.clocks.append(clock)
-        logger.debug(f"Parsed clock: {clock.name} period={clock.period}")
-
-    def _parse_io_delay(self, line, delay_type):
-        clock_match = re.search(r"-clock\s+(?:\[get_clocks\s+)?(\S+?)[\]\s]", line)
-        value_match = re.search(r"(?:-max|-min)?\s+(-?\d+\.?\d*)\s", line)
-        pin_match = re.search(r"\[(?:get_ports|get_pins)\s+(\S+?)\]", line)
-        is_min = "-min" in line
-        is_max = "-max" in line
-
-        if not clock_match or not pin_match:
-            if self.strict:
-                raise ValueError(f"Incomplete IO delay at line {self._line_num}")
-            logger.warning(f"Incomplete IO delay at line {self._line_num}")
-            return
-
-        val = float(value_match.group(1)) if value_match else 0.0
-
-        delay = IODelay(
-            pin=pin_match.group(1),
-            clock=clock_match.group(1),
-            delay_value=val,
-            delay_type=delay_type,
-            min_delay=val if is_min else None,
-            max_delay=val if is_max else None,
-        )
-        self.result.io_delays.append(delay)
-
-    def _parse_false_path(self, line):
-        from_match = re.findall(r"-from\s+\[get_clocks\s+\{?([^}\]]+)\}?\]", line)
-        to_match = re.findall(r"-to\s+\[get_clocks\s+\{?([^}\]]+)\}?\]", line)
-
-        from_list = []
-        for m in from_match:
-            from_list.extend(m.split())
-        to_list = []
-        for m in to_match:
-            to_list.extend(m.split())
-
-        exc = TimingException(
-            exception_type="false_path",
-            from_list=from_list,
-            to_list=to_list,
-        )
-        self.result.exceptions.append(exc)
-
-    def _parse_multicycle_path(self, line):
-        multiplier_match = re.search(r"-path_multiplier\s+(\d+)", line)
-        setup_match = re.search(r"-setup\s+(\d+)", line)
-        hold_match = re.search(r"-hold\s+(\d+)", line)
-        from_match = re.findall(r"-from\s+\[get_clocks\s+\{?([^}\]]+)\}?\]", line)
-        to_match = re.findall(r"-to\s+\[get_clocks\s+\{?([^}\]]+)\}?\]", line)
-
-        from_list = []
-        for m in from_match:
-            from_list.extend(m.split())
-        to_list = []
-        for m in to_match:
-            to_list.extend(m.split())
-
-        value = None
-        if setup_match:
-            value = float(setup_match.group(1))
-        elif hold_match:
-            value = float(hold_match.group(1))
-        elif multiplier_match:
-            value = float(multiplier_match.group(1))
-
-        exc = TimingException(
-            exception_type="multicycle_path",
-            from_list=from_list,
-            to_list=to_list,
-            value=value,
-        )
-        self.result.exceptions.append(exc)
-
-    def _parse_max_min_delay(self, line, kind):
-        value_match = re.search(r"(?:set_max_delay|set_min_delay)\s+(-?\d+\.?\d*)", line)
-        from_match = re.findall(r"-from\s+\[get_clocks\s+\{?([^}\]]+)\}?\]", line)
-        to_match = re.findall(r"-to\s+\[get_clocks\s+\{?([^}\]]+)\}?\]", line)
-
-        from_list = []
-        for m in from_match:
-            from_list.extend(m.split())
-        to_list = []
-        for m in to_match:
-            to_list.extend(m.split())
-
-        value = float(value_match.group(1)) if value_match else None
-
-        exc = TimingException(
-            exception_type=f"{kind}_delay",
-            from_list=from_list,
-            to_list=to_list,
-            value=value,
-        )
-        self.result.exceptions.append(exc)
-
-    def _parse_clock_groups(self, line):
-        group_matches = re.findall(r"-group\s+\{([^}]+)\}", line)
-        for group_str in group_matches:
-            clocks = group_str.split()
-            logger.debug(f"Clock group: {clocks}")
-
-    def _parse_clock_uncertainty(self, line):
-        value_match = re.search(r"set_clock_uncertainty\s+(-?\d+\.?\d*)", line)
-        if value_match:
-            logger.debug(f"Clock uncertainty: {value_match.group(1)}")
-
-
-def analyze_constraints(constraint_set):
-    total_clocks = len(constraint_set.clocks)
-    total_exceptions = len(constraint_set.exceptions)
-    total_io = len(constraint_set.io_delays)
-
-    clock_periods = {}
-    for c in constraint_set.clocks:
-        clock_periods[c.name] = c.period
-
-    fastest_clock = None
-    if clock_periods:
-        fastest_clock = min(clock_periods, key=clock_periods.get)
-
-    false_paths = [e for e in constraint_set.exceptions if e.exception_type == "false_path"]
-    multicycles = [e for e in constraint_set.exceptions if e.exception_type == "multicycle_path"]
-
-    report = {
-        "total_clocks": total_clocks,
-        "total_io_delays": total_io,
-        "total_exceptions": total_exceptions,
-        "clock_periods": clock_periods,
-        "fastest_clock": fastest_clock,
-        "false_path_count": len(false_paths),
-        "multicycle_count": len(multicycles),
+    _IO_DELAY_CMDS: frozenset[str] = frozenset(
+        {"set_input_delay", "set_output_delay"}
+    )
+    _EXCEPTION_CMDS: frozenset[str] = frozenset(
+        {"set_false_path", "set_multicycle_path", "set_max_delay", "set_min_delay"}
+    )
+    _EXCEPTION_TYPE_MAP: dict[str, str] = {
+        "set_false_path": "false_path",
+        "set_multicycle_path": "multicycle_path",
+        "set_max_delay": "max_delay",
+        "set_min_delay": "min_delay",
     }
-    return report
+
+    def __init__(self, strict: bool = False) -> None:
+        self.strict = strict
+
+    # ── Public API ─────────────────────────────────────────────────────────
+
+    def parse_file(self, path: Path) -> SDCConstraintSet:
+        """Parse an SDC file from disk, reading line by line.
+
+        Args:
+            path: Path to the ``.sdc`` file.
+
+        Returns:
+            A populated :class:`SDCConstraintSet`.
+
+        Raises:
+            FileNotFoundError: If *path* does not exist.
+            ParseError: If ``strict=True`` and a malformed command is found.
+        """
+        path = Path(path)
+        logger.debug("Parsing SDC file: %s", path)
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            return self._parse_from_iter(enumerate(fh, start=1))
+
+    def parse_string(self, content: str) -> SDCConstraintSet:
+        """Parse SDC constraints from an in-memory string.
+
+        Args:
+            content: Full SDC file content.
+
+        Returns:
+            A populated :class:`SDCConstraintSet`.
+
+        Raises:
+            ParseError: If ``strict=True`` and a malformed command is found.
+        """
+        lines = content.splitlines(keepends=True)
+        return self._parse_from_iter(enumerate(lines, start=1))
+
+    # ── Preprocessing ──────────────────────────────────────────────────────
+
+    def _parse_from_iter(
+        self, numbered_lines: Iterable[tuple[int, str]]
+    ) -> SDCConstraintSet:
+        """Build a constraint set from an iterable of numbered raw lines.
+
+        Args:
+            numbered_lines: Pairs of ``(1-based-line-num, raw-line-text)``.
+
+        Returns:
+            A populated :class:`SDCConstraintSet`.
+        """
+        result = SDCConstraintSet()
+        for line_num, command in self._iter_commands(numbered_lines):
+            logger.debug("Line %d: %s", line_num, command[:80])
+            self._dispatch_command(line_num, command, result)
+        return result
+
+    def _iter_commands(
+        self, numbered_lines: Iterable[tuple[int, str]]
+    ) -> Iterator[tuple[int, str]]:
+        """Yield complete SDC commands with backslash continuation resolved.
+
+        Comments (``#`` to end of line) are stripped and blank lines are
+        suppressed.  The yielded line number is the start of each command.
+
+        Args:
+            numbered_lines: Pairs of ``(1-based-line-num, raw-line-text)``.
+
+        Yields:
+            ``(start_line_num, command_text)`` pairs.
+        """
+        pending = ""
+        start_line = 1
+        for line_num, raw in numbered_lines:
+            line = raw.rstrip("\r\n")
+            if not pending:
+                start_line = line_num
+            if line.rstrip().endswith("\\"):
+                pending += line.rstrip()[:-1] + " "
+                continue
+            full = self._strip_comment(pending + line).strip()
+            pending = ""
+            if full:
+                yield start_line, full
+        if pending.strip():
+            full = self._strip_comment(pending).strip()
+            if full:
+                yield start_line, full
+
+    @staticmethod
+    def _strip_comment(line: str) -> str:
+        """Remove a trailing ``#`` comment, respecting bracket and brace depth.
+
+        Args:
+            line: A raw (or continuation-joined) SDC line.
+
+        Returns:
+            The line with any trailing comment removed.
+        """
+        depth_bracket = depth_brace = 0
+        in_string = False
+        for idx, ch in enumerate(line):
+            if ch == '"' and not in_string:
+                in_string = True
+            elif ch == '"' and in_string:
+                in_string = False
+            elif not in_string:
+                if ch == "[":
+                    depth_bracket += 1
+                elif ch == "]":
+                    depth_bracket = max(0, depth_bracket - 1)
+                elif ch == "{":
+                    depth_brace += 1
+                elif ch == "}":
+                    depth_brace = max(0, depth_brace - 1)
+                elif ch == "#" and depth_bracket == 0 and depth_brace == 0:
+                    return line[:idx]
+        return line
+
+    # ── Tokenisation ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _tokenize(command: str) -> list[str]:
+        """Split an SDC command into atomic tokens.
+
+        Recognises bare words/flags, ``[...]`` Tcl commands, ``{...}`` brace
+        lists, and ``"..."`` quoted strings as indivisible tokens.
+
+        Args:
+            command: A single SDC command string (no leading/trailing whitespace).
+
+        Returns:
+            Ordered list of token strings.
+        """
+        tokens: list[str] = []
+        i, n = 0, len(command)
+        while i < n:
+            ch = command[i]
+            if ch.isspace():
+                i += 1
+                continue
+            if ch == "[":
+                depth, start = 0, i
+                while i < n:
+                    if command[i] == "[":
+                        depth += 1
+                    elif command[i] == "]":
+                        depth -= 1
+                        if depth == 0:
+                            i += 1
+                            break
+                    i += 1
+                tokens.append(command[start:i])
+            elif ch == "{":
+                depth, start = 0, i
+                while i < n:
+                    if command[i] == "{":
+                        depth += 1
+                    elif command[i] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            i += 1
+                            break
+                    i += 1
+                tokens.append(command[start:i])
+            elif ch == '"':
+                start = i
+                i += 1
+                while i < n:
+                    if command[i] == "\\" and i + 1 < n:
+                        i += 2
+                    elif command[i] == '"':
+                        i += 1
+                        break
+                    else:
+                        i += 1
+                tokens.append(command[start:i])
+            else:
+                start = i
+                while i < n and not command[i].isspace() and command[i] not in '[{"':
+                    i += 1
+                tokens.append(command[start:i])
+        return [t for t in tokens if t]
+
+    # ── Tcl collection helpers ─────────────────────────────────────────────
+
+    def _extract_names(self, token: str) -> list[str]:
+        """Extract signal/clock names from a Tcl collection token or brace list.
+
+        Handles:
+
+        - ``[get_ports {a b}]`` → ``['a', 'b']``
+        - ``[get_clocks clk_sys]`` → ``['clk_sys']``
+        - ``{a b c}`` → ``['a', 'b', 'c']``
+        - ``plain_name`` → ``['plain_name']``
+
+        Args:
+            token: A single token from :meth:`_tokenize`.
+
+        Returns:
+            List of extracted name strings (may be empty).
+        """
+        token = token.strip()
+        m = _TCL_COLLECTION_RE.match(token)
+        if m:
+            return self._split_tcl_list(m.group(1).strip())
+        if token.startswith("{") and token.endswith("}"):
+            return self._split_tcl_list(token[1:-1])
+        if token.startswith('"') and token.endswith('"'):
+            return [token[1:-1]]
+        return [token] if token else []
+
+    @staticmethod
+    def _split_tcl_list(s: str) -> list[str]:
+        """Split a Tcl-style whitespace-separated list, respecting brace quoting.
+
+        Args:
+            s: Inner content of a Tcl list (surrounding braces already removed).
+
+        Returns:
+            List of element strings with brace quoting stripped.
+        """
+        items: list[str] = []
+        current: list[str] = []
+        depth = 0
+        for ch in s.strip():
+            if ch == "{":
+                depth += 1
+                current.append(ch)
+            elif ch == "}":
+                depth -= 1
+                current.append(ch)
+            elif ch.isspace() and depth == 0:
+                if current:
+                    items.append("".join(current).strip("{}"))
+                    current = []
+            else:
+                current.append(ch)
+        if current:
+            items.append("".join(current).strip("{}"))
+        return [item for item in items if item]
+
+    # ── Error handling ─────────────────────────────────────────────────────
+
+    def _handle_error(self, line_num: int, line_text: str, message: str) -> None:
+        """Log a warning or raise :class:`ParseError` depending on strict mode.
+
+        Args:
+            line_num: 1-based source line number.
+            line_text: Offending command text.
+            message: Description of the problem.
+
+        Raises:
+            ParseError: Always raised when ``self.strict`` is ``True``.
+        """
+        if self.strict:
+            raise ParseError(line_num, line_text, message)
+        logger.warning("Line %d: %s — skipping: %r", line_num, message, line_text[:120])
+
+    # ── Command dispatch ───────────────────────────────────────────────────
+
+    def _dispatch_command(
+        self, line_num: int, command: str, result: SDCConstraintSet
+    ) -> None:
+        """Route a single SDC command to the appropriate handler.
+
+        Recognised commands update *result* in place.  Unrecognised commands
+        are appended verbatim to ``result.raw_commands``.
+
+        Args:
+            line_num: 1-based source line number.
+            command: Full command text.
+            result: Constraint set being populated; mutated in place.
+        """
+        tokens = self._tokenize(command)
+        if not tokens:
+            return
+        cmd = tokens[0]
+        if cmd == "create_clock":
+            clock = self._parse_create_clock(tokens, line_num, command)
+            if clock is not None:
+                result.clocks.append(clock)
+        elif cmd in self._IO_DELAY_CMDS:
+            result.io_delays.extend(
+                self._parse_io_delay(tokens, line_num, command)
+            )
+        elif cmd in self._EXCEPTION_CMDS:
+            exc = self._parse_timing_exception(tokens, line_num, command)
+            if exc is not None:
+                result.exceptions.append(exc)
+        else:
+            logger.debug(
+                "Line %d: unrecognised command %r — storing verbatim", line_num, cmd
+            )
+            result.raw_commands.append(command)
+
+    # ── Command parsers ────────────────────────────────────────────────────
+
+    def _parse_create_clock(
+        self, tokens: list[str], line_num: int, raw: str
+    ) -> ClockConstraint | None:
+        """Parse a ``create_clock`` command.
+
+        Args:
+            tokens: Tokenised command words (``tokens[0]`` is ``"create_clock"``).
+            line_num: Source line number for error reporting.
+            raw: Original command text.
+
+        Returns:
+            A :class:`ClockConstraint`, or ``None`` if parsing fails in
+            non-strict mode.
+        """
+        name: str | None = None
+        period: float | None = None
+        waveform: list[float] = []
+        source: str | None = None
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok == "-name" and i + 1 < len(tokens):
+                name = tokens[i + 1].strip('"')
+                i += 2
+            elif tok == "-period" and i + 1 < len(tokens):
+                try:
+                    period = float(tokens[i + 1])
+                except ValueError:
+                    self._handle_error(line_num, raw, f"Invalid -period: {tokens[i+1]!r}")
+                    return None
+                i += 2
+            elif tok == "-waveform" and i + 1 < len(tokens):
+                waveform = self._parse_float_list(tokens[i + 1], line_num, raw)
+                i += 2
+            elif tok.startswith("-"):
+                i += 2 if i + 1 < len(tokens) and not tokens[i + 1].startswith("-") else 1
+            else:
+                names = self._extract_names(tok)
+                if names:
+                    source = names[0]
+                i += 1
+        if period is None:
+            self._handle_error(line_num, raw, "create_clock missing required -period")
+            return None
+        if name is None:
+            name = source or "unnamed_clock"
+        if not waveform:
+            waveform = [0.0, period / 2.0]
+        try:
+            return ClockConstraint(
+                name=name, period=period, waveform=waveform, source=source or ""
+            )
+        except ValueError as exc:
+            self._handle_error(line_num, raw, str(exc))
+            return None
+
+    def _parse_io_delay(
+        self, tokens: list[str], line_num: int, raw: str
+    ) -> list[IODelay]:
+        """Parse ``set_input_delay`` or ``set_output_delay``.
+
+        One command can target multiple ports via a Tcl brace list, so this
+        method returns a list of :class:`IODelay` objects.
+
+        Args:
+            tokens: Tokenised command words.
+            line_num: Source line number for error reporting.
+            raw: Original command text.
+
+        Returns:
+            List of :class:`IODelay` objects (empty on parse failure).
+        """
+        delay_type = "input" if tokens[0] == "set_input_delay" else "output"
+        clock = ""
+        delay_value: float | None = None
+        is_min = is_max = False
+        pins: list[str] = []
+        # Flags that consume no value argument
+        _bool_flags = {
+            "-add_delay", "-network_latency_included",
+            "-source_latency_included", "-rise", "-fall",
+            "-level_sensitive", "-edge_triggered",
+        }
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok == "-clock" and i + 1 < len(tokens):
+                names = self._extract_names(tokens[i + 1])
+                clock = names[0] if names else ""
+                i += 2
+            elif tok == "-max":
+                is_max = True
+                i += 1
+            elif tok == "-min":
+                is_min = True
+                i += 1
+            elif tok in _bool_flags:
+                i += 1
+            elif tok == "-reference_pin":
+                i += 2
+            elif tok.startswith("[") or tok.startswith("{"):
+                pins.extend(self._extract_names(tok))
+                i += 1
+            elif tok.startswith("-"):
+                i += 2
+            else:
+                try:
+                    delay_value = float(tok)
+                except ValueError:
+                    pins.extend(self._extract_names(tok))
+                i += 1
+        if delay_value is None:
+            self._handle_error(line_num, raw, f"{tokens[0]} missing delay value")
+            return []
+        results: list[IODelay] = []
+        for pin in pins:
+            try:
+                results.append(
+                    IODelay(
+                        pin=pin,
+                        clock=clock,
+                        delay_value=delay_value,
+                        delay_type=delay_type,
+                        min_delay=is_min,
+                        max_delay=is_max,
+                    )
+                )
+            except ValueError as exc:
+                self._handle_error(line_num, raw, str(exc))
+        return results
+
+    def _parse_timing_exception(
+        self, tokens: list[str], line_num: int, raw: str
+    ) -> TimingException | None:
+        """Parse ``set_false_path``, ``set_multicycle_path``, ``set_max_delay``,
+        or ``set_min_delay``.
+
+        Args:
+            tokens: Tokenised command words.
+            line_num: Source line number for error reporting.
+            raw: Original command text.
+
+        Returns:
+            A :class:`TimingException`, or ``None`` if parsing fails in
+            non-strict mode.
+        """
+        exception_type = self._EXCEPTION_TYPE_MAP[tokens[0]]
+        from_list: list[str] = []
+        to_list: list[str] = []
+        value: float | int | None = None
+        _bool_flags = {"-setup", "-hold", "-rise", "-fall", "-datapath_only"}
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok == "-from" and i + 1 < len(tokens):
+                from_list.extend(self._extract_names(tokens[i + 1]))
+                i += 2
+            elif tok == "-to" and i + 1 < len(tokens):
+                to_list.extend(self._extract_names(tokens[i + 1]))
+                i += 2
+            elif tok == "-through" and i + 1 < len(tokens):
+                i += 2  # through-points are not modelled; skip
+            elif tok in _bool_flags:
+                i += 1
+            elif tok.startswith("-"):
+                i += 2
+            else:
+                try:
+                    raw_val = float(tok)
+                    value = int(raw_val) if raw_val == int(raw_val) else raw_val
+                except ValueError:
+                    self._handle_error(line_num, raw, f"Unexpected token: {tok!r}")
+                    return None
+                i += 1
+        try:
+            return TimingException(
+                exception_type=exception_type,
+                from_list=from_list,
+                to_list=to_list,
+                value=value,
+            )
+        except ValueError as exc:
+            self._handle_error(line_num, raw, str(exc))
+            return None
+
+    # ── Float-list helper ──────────────────────────────────────────────────
+
+    def _parse_float_list(
+        self, token: str, line_num: int, raw: str
+    ) -> list[float]:
+        """Parse a brace-enclosed or bare space-separated list of floats.
+
+        Args:
+            token: Token string, e.g. ``"{0.0 5.0}"`` or ``"0.0"``.
+            line_num: Source line for error context.
+            raw: Original command for error context.
+
+        Returns:
+            List of floats; empty list if any element cannot be converted.
+        """
+        token = token.strip().strip("{}")
+        parts = token.replace(",", " ").split()
+        result: list[float] = []
+        for part in parts:
+            try:
+                result.append(float(part))
+            except ValueError:
+                self._handle_error(line_num, raw, f"Non-numeric value in float list: {part!r}")
+                return []
+        return result
 
 
-def print_summary(path):
-    p = SDCParser()
-    result = p.parse_file(path)
-    report = analyze_constraints(result)
-    print(f"SDC Summary for: {path}")
-    print(f"  Clocks: {report['total_clocks']}")
-    for name, period in report["clock_periods"].items():
-        freq_mhz = 1000.0 / period
-        print(f"    {name}: {period} ns ({freq_mhz:.1f} MHz)")
-    if report["fastest_clock"]:
-        print(f"  Fastest clock: {report['fastest_clock']}")
-    print(f"  IO delays: {report['total_io_delays']}")
-    print(f"  False paths: {report['false_path_count']}")
-    print(f"  Multicycle paths: {report['multicycle_count']}")
+# ─── Summary helper ───────────────────────────────────────────────────────────
 
+
+def _build_summary(cs: SDCConstraintSet) -> str:
+    """Render a human-readable summary of a parsed constraint set.
+
+    Args:
+        cs: The parsed constraint set.
+
+    Returns:
+        Formatted multi-line summary string.
+    """
+    lines = [
+        "=== SDC Constraint Summary ===",
+        f"  Clocks              : {len(cs.clocks)}",
+        f"  IO Delays           : {len(cs.io_delays)}",
+        f"  Timing Exceptions   : {len(cs.exceptions)}",
+        f"  Unrecognised Cmds   : {len(cs.raw_commands)}",
+    ]
+    if cs.clocks:
+        lines.append("\nClocks:")
+        for c in cs.clocks:
+            freq_mhz = 1000.0 / c.period if c.period else 0.0
+            lines.append(f"  {c}  [{freq_mhz:.1f} MHz]")
+    if cs.io_delays:
+        lines.append("\nIO Delays:")
+        for d in cs.io_delays:
+            lines.append(f"  {d}")
+    if cs.exceptions:
+        lines.append("\nTiming Exceptions:")
+        for e in cs.exceptions:
+            lines.append(f"  {e}")
+    if cs.raw_commands:
+        lines.append("\nUnrecognised Commands:")
+        for cmd in cs.raw_commands:
+            lines.append(f"  {cmd[:100]}")
+    return "\n".join(lines)
+
+
+# ─── CLI entry point ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) < 2:
-        print("Usage: python sdc_parser.py <file.sdc>")
+    ap = argparse.ArgumentParser(
+        description="Parse an SDC timing constraints file and emit JSON or a summary.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python sdc_parser.py -i design.sdc --format summary\n"
+            "  python sdc_parser.py -i design.sdc --format json -o out.json\n"
+        ),
+    )
+    ap.add_argument(
+        "-i", "--input", required=True, type=Path, metavar="FILE",
+        help="Input SDC file path.",
+    )
+    ap.add_argument(
+        "-o", "--output", type=Path, default=None, metavar="FILE",
+        help="Output file path (default: stdout).",
+    )
+    ap.add_argument(
+        "--format", choices=["json", "summary"], default="summary",
+        help="Output format (default: summary).",
+    )
+    ap.add_argument(
+        "--strict", action="store_true",
+        help="Raise ParseError on the first malformed command instead of warning.",
+    )
+    ap.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Enable DEBUG-level logging.",
+    )
+    args = ap.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+
+    try:
+        parser = SDCParser(strict=args.strict)
+        constraint_set = parser.parse_file(args.input)
+    except FileNotFoundError:
+        logger.error("Input file not found: %s", args.input)
         sys.exit(1)
-    print_summary(sys.argv[1])
+    except ParseError as exc:
+        logger.error("Parse error: %s", exc)
+        sys.exit(2)
+
+    if args.format == "json":
+        output = json.dumps(constraint_set.to_dict(), indent=2)
+    else:
+        output = _build_summary(constraint_set)
+
+    if args.output:
+        args.output.write_text(output, encoding="utf-8")
+        logger.info("Written to %s", args.output)
+    else:
+        sys.stdout.write(output)
+        if not output.endswith("\n"):
+            sys.stdout.write("\n")
