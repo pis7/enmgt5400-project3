@@ -1,0 +1,183 @@
+****************************************
+Report : timing
+        -path full
+        -delay max
+        -max_paths 6
+Design : sample_design
+Version: 2024.06
+Date   : Mon Feb 17 14:23:01 2026
+****************************************
+
+  Startpoint: data_reg_2/Q
+  Endpoint: out_reg_0/D
+  Path Group: clk_core
+  Path Type: setup
+
+  Point                                    Incr       Path
+  -----------------------------------------------------------
+  clock clk_core (rise edge)               0.000      0.000
+  data_reg_2 (DFFX1)                       0.120      0.120     2       0.015
+  U7/A0 (AOI21X1)                          0.085      0.205     1       0.008
+  U7/Y (AOI21X1)                           0.095      0.300     1       0.012
+  U8/A1 (OAI21X1)                          0.070      0.370     1       0.006
+  U8/Y (OAI21X1)                           0.110      0.480     1       0.014
+  out_reg_0/D (DFFX1)                      0.030      0.510     1       0.004
+  data arrival time                                    0.510
+
+  clock clk_core (rise edge)               2.000      2.000
+  clock network delay (ideal)              0.000      2.000
+  clock uncertainty                        -0.050     1.950
+  out_reg_0/CK (DFFX1)                    0.000      1.950
+  library setup time                       -0.080     1.870
+  data required time                                   1.870
+
+  slack (MET)                                          1.360
+
+  -----------------------------------------------------------
+
+  Startpoint: data_reg_4/Q
+  Endpoint: out_reg_1/D
+  Path Group: clk_core
+  Path Type: setup
+
+  Point                                    Incr       Path
+  -----------------------------------------------------------
+  clock clk_core (rise edge)               0.000      0.000
+  data_reg_4 (DFFX1)                       0.115      0.115     2       0.014
+  U9/A (NAND2X1)                           0.075      0.190     1       0.007
+  U9/Y (NAND2X1)                           0.090      0.280     1       0.011
+  U11/A (AND2X1)                           0.065      0.345     1       0.006
+  U11/Y (AND2X1)                           0.100      0.445     1       0.013
+  out_reg_1/D (DFFX1)                      0.025      0.470     1       0.003
+  data arrival time                                    0.470
+
+  clock clk_core (rise edge)               2.000      2.000
+  clock network delay (ideal)              0.000      2.000
+  clock uncertainty                        -0.050     1.950
+  out_reg_1/CK (DFFX1)                    0.000      1.950
+  library setup time                       -0.080     1.870
+  data required time                                   1.870
+
+  slack (MET)                                          1.400
+
+  -----------------------------------------------------------
+
+  Startpoint: data_reg_0/Q
+  Endpoint: out_reg_2/D
+  Path Group: clk_core
+  Path Type: setup
+
+  Point                                    Incr       Path
+  -----------------------------------------------------------
+  clock clk_core (rise edge)               0.000      0.000
+  data_reg_0 (DFFX1)                       0.125      0.125     3       0.018
+  U5/A (INVX1)                             0.040      0.165     1       0.005
+  U5/Y (INVX1)                             0.055      0.220     1       0.007
+  U7/B0 (AOI21X1)                          0.080      0.300     1       0.008
+  U7/Y (AOI21X1)                           0.095      0.395     1       0.012
+  U8/A1 (OAI21X1)                          0.070      0.465     1       0.006
+  U8/Y (OAI21X1)                           0.110      0.575     1       0.014
+  U12/D0 (MUX2X1)                          0.060      0.635     1       0.008
+  U12/Y (MUX2X1)                           0.105      0.740     1       0.013
+  out_reg_2/D (DFFX1)                      0.030      0.770     1       0.004
+  data arrival time                                    0.770
+
+  clock clk_core (rise edge)               2.000      2.000
+  clock network delay (ideal)              0.000      2.000
+  clock uncertainty                        -0.050     1.950
+  out_reg_2/CK (DFFX1)                    0.000      1.950
+  library setup time                       -0.080     1.870
+  data required time                                   1.870
+
+  slack (MET)                                          1.100
+
+  -----------------------------------------------------------
+
+  Startpoint: addr_in[0]
+  Endpoint: valid_reg/D
+  Path Group: clk_core
+  Path Type: setup
+
+  Point                                    Incr       Path
+  -----------------------------------------------------------
+  clock clk_core (rise edge)               0.000      0.000
+  addr_in[0] (input port)                  0.800      0.800     1       0.020
+  U1/A (NAND2X1)                           0.065      0.865     1       0.006
+  U1/Y (NAND2X1)                           0.085      0.950     1       0.010
+  U3/A (NOR2X1)                            0.060      1.010     1       0.005
+  U3/Y (NOR2X1)                            0.090      1.100     1       0.011
+  U4/A (AND2X1)                            0.055      1.155     1       0.005
+  U4/Y (AND2X1)                            0.095      1.250     1       0.012
+  valid_reg/D (DFFX1)                      0.025      1.275     1       0.003
+  data arrival time                                    1.275
+
+  clock clk_core (rise edge)               2.000      2.000
+  clock network delay (ideal)              0.000      2.000
+  clock uncertainty                        -0.050     1.950
+  valid_reg/CK (DFFX1)                    0.000      1.950
+  library setup time                       -0.080     1.870
+  data required time                                   1.870
+
+  slack (MET)                                          0.595
+
+  -----------------------------------------------------------
+
+  Startpoint: io_data_in
+  Endpoint: io_reg/D
+  Path Group: clk_io
+  Path Type: setup
+
+  Point                                    Incr       Path
+  -----------------------------------------------------------
+  clock clk_io (rise edge)                 0.000      0.000
+  io_data_in (input port)                  1.500      1.500     1       0.035
+  io_buf/A (BUFX2)                         0.045      1.545     1       0.008
+  io_buf/Y (BUFX2)                         0.070      1.615     1       0.010
+  io_reg/D (DFFX1)                         0.030      1.645     1       0.004
+  data arrival time                                    1.645
+
+  clock clk_io (rise edge)                 5.000      5.000
+  clock network delay (ideal)              0.000      5.000
+  clock uncertainty                        -0.100     4.900
+  io_reg/CK (DFFX1)                       0.000      4.900
+  library setup time                       -0.080     4.820
+  data required time                                   4.820
+
+  slack (MET)                                          3.175
+
+  -----------------------------------------------------------
+
+  Startpoint: data_reg_0/Q
+  Endpoint: crit_reg/D
+  Path Group: clk_core
+  Path Type: setup
+
+  Point                                    Incr       Path
+  -----------------------------------------------------------
+  clock clk_core (rise edge)               0.000      0.000
+  data_reg_0 (DFFX1)                       0.125      0.125     3       0.018
+  U5/A (INVX1)                             0.040      0.165     1       0.005
+  U5/Y (INVX1)                             0.055      0.220     1       0.007
+  U7/B0 (AOI21X1)                          0.080      0.300     1       0.008
+  U7/Y (AOI21X1)                           0.095      0.395     1       0.012
+  U8/A1 (OAI21X1)                          0.070      0.465     1       0.006
+  U8/Y (OAI21X1)                           0.110      0.575     1       0.014
+  U12/D0 (MUX2X1)                          0.060      0.635     1       0.008
+  U12/Y (MUX2X1)                           0.105      0.740     1       0.013
+  chain_buf1/A (BUFX1)                     0.045      0.785     1       0.006
+  chain_buf1/Y (BUFX1)                     0.090      0.875     1       0.012
+  chain_nand/A (NAND2X1)                   0.065      0.940     1       0.007
+  chain_nand/Y (NAND2X1)                   0.085      1.025     1       0.010
+  chain_inv/A (INVX1)                      0.040      1.065     1       0.005
+  chain_inv/Y (INVX1)                      0.060      1.125     1       0.008
+  crit_reg/D (DFFX1)                       0.030      1.155     1       0.004
+  data arrival time                                    1.155
+
+  clock clk_core (rise edge)               2.000      2.000
+  clock network delay (ideal)              0.000      2.000
+  clock uncertainty                        -0.050     1.950
+  crit_reg/CK (DFFX1)                     0.000      1.950
+  library setup time                       -0.080     1.870
+  data required time                                   1.870
+
+  slack (MET)                                          0.715
