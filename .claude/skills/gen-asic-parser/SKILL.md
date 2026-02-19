@@ -1,4 +1,9 @@
-# Generate ASIC File Format Parser
+---
+name: gen-asic-parser
+description: Generates a complete, production-ready Python parser for ASIC file formats (SDC, LEF, DEF, Liberty, SDF, SPEF, Verilog-netlist). Use when creating a new parser for an EDA file format or when the user needs to parse ASIC design files.
+argument-hint: <format-name>
+disable-model-invocation: true
+---
 
 Generate a complete Python parser for the following ASIC file format: $ARGUMENTS
 

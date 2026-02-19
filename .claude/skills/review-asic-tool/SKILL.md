@@ -1,4 +1,9 @@
-# Review ASIC Tool
+---
+name: review-asic-tool
+description: Performs a comprehensive code review of Python ASIC tools using MCP complexity analysis and docstring generation, plus ASIC-domain-specific quality checks. Use when reviewing Python code that parses or processes EDA file formats, or when the user asks for a code review of ASIC tooling.
+argument-hint: <file-or-directory-path>
+disable-model-invocation: true
+---
 
 Perform a comprehensive code review of the following Python ASIC tool: $ARGUMENTS
 

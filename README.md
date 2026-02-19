@@ -9,10 +9,13 @@ I chose this domain because my primary professional and academic interest is in 
 ```
 enmgt5400-project3/
 ├── .claude/
-│   └── commands/
-│       ├── review-asic-tool.md     # Skill 1: Code review with MCP integration
-│       ├── gen-asic-parser.md      # Skill 2: ASIC parser scaffolding
-│       └── asic-tool-test.md       # Skill 3: Test suite generation
+│   └── skills/
+│       ├── review-asic-tool/
+│       │   └── SKILL.md            # Skill 1: Code review with MCP integration
+│       ├── gen-asic-parser/
+│       │   └── SKILL.md            # Skill 2: ASIC parser scaffolding
+│       └── asic-tool-test/
+│           └── SKILL.md            # Skill 3: Test suite generation
 ├── CLAUDE.md                       # Annotated project instructions file
 ├── main.py                         # Project entry point
 ├── pyproject.toml                  # Python project configuration
@@ -144,7 +147,11 @@ The `CLAUDE.md` file is structured around six sections, each annotated with HTML
 
 ## Part 2: Claude Code Skills
 
+Skills follow the [Agent Skills](https://agentskills.io) open standard and are stored as `SKILL.md` files in `.claude/skills/<skill-name>/` directories. Each skill includes YAML frontmatter (`---` delimiters) that configures the skill name, description, argument hints, and invocation control. All three skills use `disable-model-invocation: true` so they are only triggered manually via `/skill-name`, not automatically by Claude.
+
 ### Skill 1: `/review-asic-tool` — Code Review with MCP Integration
+
+**Location**: `.claude/skills/review-asic-tool/SKILL.md`
 
 **Purpose**: Performs a comprehensive four-step code review of Python ASIC tools.
 
@@ -160,6 +167,8 @@ The `CLAUDE.md` file is structured around six sections, each annotated with HTML
 
 ### Skill 2: `/gen-asic-parser` — ASIC File Format Parser Scaffolding
 
+**Location**: `.claude/skills/gen-asic-parser/SKILL.md`
+
 **Purpose**: Generates complete, production-ready Python parser boilerplate for any standard ASIC file format.
 
 **How it works**: Given a format name (SDC, Liberty, LEF, DEF, SDF, SPEF, or Verilog-netlist), generates a full parser file with:
@@ -174,6 +183,8 @@ The `CLAUDE.md` file is structured around six sections, each annotated with HTML
 **Why this is valuable**: Parser development is the most common task in ASIC tool development. Every new project starts with "I need to parse format X." This skill saves hours of boilerplate and ensures architectural consistency across all parsers.
 
 ### Skill 3: `/asic-tool-test` — Test Suite Generation
+
+**Location**: `.claude/skills/asic-tool-test/SKILL.md`
 
 **Purpose**: Generates comprehensive pytest test suites with ASIC-domain-aware fixtures and edge cases.
 

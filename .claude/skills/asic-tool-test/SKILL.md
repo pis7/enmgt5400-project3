@@ -1,4 +1,9 @@
-# Generate ASIC Tool Test Suite
+---
+name: asic-tool-test
+description: Generates comprehensive pytest test suites for Python ASIC tools, with realistic EDA file format fixtures and domain-specific edge cases. Use when writing tests for code that parses or processes ASIC design files.
+argument-hint: <python-file-path>
+disable-model-invocation: true
+---
 
 Generate a comprehensive `pytest` test suite for the following Python ASIC tool or module: $ARGUMENTS
 
