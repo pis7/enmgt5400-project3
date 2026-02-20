@@ -87,7 +87,6 @@ class ClockConstraint:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialise to a JSON-compatible dictionary."""
         return {
             "name": self.name,
             "period_ns": self.period,
@@ -300,35 +299,12 @@ class SDCParser:
     # ── Public API ─────────────────────────────────────────────────────────
 
     def parse_file(self, path: Path) -> SDCConstraintSet:
-        """Parse an SDC file from disk, reading line by line.
-
-        Args:
-            path: Path to the ``.sdc`` file.
-
-        Returns:
-            A populated :class:`SDCConstraintSet`.
-
-        Raises:
-            FileNotFoundError: If *path* does not exist.
-            ParseError: If ``strict=True`` and a malformed command is found.
-        """
         path = Path(path)
         logger.debug("Parsing SDC file: %s", path)
         with path.open(encoding="utf-8", errors="replace") as fh:
             return self._parse_from_iter(enumerate(fh, start=1))
 
     def parse_string(self, content: str) -> SDCConstraintSet:
-        """Parse SDC constraints from an in-memory string.
-
-        Args:
-            content: Full SDC file content.
-
-        Returns:
-            A populated :class:`SDCConstraintSet`.
-
-        Raises:
-            ParseError: If ``strict=True`` and a malformed command is found.
-        """
         lines = content.splitlines(keepends=True)
         return self._parse_from_iter(enumerate(lines, start=1))
 
@@ -337,14 +313,6 @@ class SDCParser:
     def _parse_from_iter(
         self, numbered_lines: Iterable[tuple[int, str]]
     ) -> SDCConstraintSet:
-        """Build a constraint set from an iterable of numbered raw lines.
-
-        Args:
-            numbered_lines: Pairs of ``(1-based-line-num, raw-line-text)``.
-
-        Returns:
-            A populated :class:`SDCConstraintSet`.
-        """
         result = SDCConstraintSet()
         for line_num, command in self._iter_commands(numbered_lines):
             logger.debug("Line %d: %s", line_num, command[:80])
@@ -354,17 +322,6 @@ class SDCParser:
     def _iter_commands(
         self, numbered_lines: Iterable[tuple[int, str]]
     ) -> Iterator[tuple[int, str]]:
-        """Yield complete SDC commands with backslash continuation resolved.
-
-        Comments (``#`` to end of line) are stripped and blank lines are
-        suppressed.  The yielded line number is the start of each command.
-
-        Args:
-            numbered_lines: Pairs of ``(1-based-line-num, raw-line-text)``.
-
-        Yields:
-            ``(start_line_num, command_text)`` pairs.
-        """
         pending = ""
         start_line = 1
         for line_num, raw in numbered_lines:
@@ -385,14 +342,6 @@ class SDCParser:
 
     @staticmethod
     def _strip_comment(line: str) -> str:
-        """Remove a trailing ``#`` comment, respecting bracket and brace depth.
-
-        Args:
-            line: A raw (or continuation-joined) SDC line.
-
-        Returns:
-            The line with any trailing comment removed.
-        """
         depth_bracket = depth_brace = 0
         in_string = False
         for idx, ch in enumerate(line):
@@ -417,17 +366,6 @@ class SDCParser:
 
     @staticmethod
     def _tokenize(command: str) -> list[str]:
-        """Split an SDC command into atomic tokens.
-
-        Recognises bare words/flags, ``[...]`` Tcl commands, ``{...}`` brace
-        lists, and ``"..."`` quoted strings as indivisible tokens.
-
-        Args:
-            command: A single SDC command string (no leading/trailing whitespace).
-
-        Returns:
-            Ordered list of token strings.
-        """
         tokens: list[str] = []
         i, n = 0, len(command)
         while i < n:
@@ -481,21 +419,6 @@ class SDCParser:
     # ── Tcl collection helpers ─────────────────────────────────────────────
 
     def _extract_names(self, token: str) -> list[str]:
-        """Extract signal/clock names from a Tcl collection token or brace list.
-
-        Handles:
-
-        - ``[get_ports {a b}]`` → ``['a', 'b']``
-        - ``[get_clocks clk_sys]`` → ``['clk_sys']``
-        - ``{a b c}`` → ``['a', 'b', 'c']``
-        - ``plain_name`` → ``['plain_name']``
-
-        Args:
-            token: A single token from :meth:`_tokenize`.
-
-        Returns:
-            List of extracted name strings (may be empty).
-        """
         token = token.strip()
         m = _TCL_COLLECTION_RE.match(token)
         if m:
@@ -508,14 +431,6 @@ class SDCParser:
 
     @staticmethod
     def _split_tcl_list(s: str) -> list[str]:
-        """Split a Tcl-style whitespace-separated list, respecting brace quoting.
-
-        Args:
-            s: Inner content of a Tcl list (surrounding braces already removed).
-
-        Returns:
-            List of element strings with brace quoting stripped.
-        """
         items: list[str] = []
         current: list[str] = []
         depth = 0
@@ -539,16 +454,6 @@ class SDCParser:
     # ── Error handling ─────────────────────────────────────────────────────
 
     def _handle_error(self, line_num: int, line_text: str, message: str) -> None:
-        """Log a warning or raise :class:`ParseError` depending on strict mode.
-
-        Args:
-            line_num: 1-based source line number.
-            line_text: Offending command text.
-            message: Description of the problem.
-
-        Raises:
-            ParseError: Always raised when ``self.strict`` is ``True``.
-        """
         if self.strict:
             raise ParseError(line_num, line_text, message)
         logger.warning("Line %d: %s — skipping: %r", line_num, message, line_text[:120])
@@ -558,16 +463,6 @@ class SDCParser:
     def _dispatch_command(
         self, line_num: int, command: str, result: SDCConstraintSet
     ) -> None:
-        """Route a single SDC command to the appropriate handler.
-
-        Recognised commands update *result* in place.  Unrecognised commands
-        are appended verbatim to ``result.raw_commands``.
-
-        Args:
-            line_num: 1-based source line number.
-            command: Full command text.
-            result: Constraint set being populated; mutated in place.
-        """
         tokens = self._tokenize(command)
         if not tokens:
             return
@@ -595,17 +490,6 @@ class SDCParser:
     def _parse_create_clock(
         self, tokens: list[str], line_num: int, raw: str
     ) -> ClockConstraint | None:
-        """Parse a ``create_clock`` command.
-
-        Args:
-            tokens: Tokenised command words (``tokens[0]`` is ``"create_clock"``).
-            line_num: Source line number for error reporting.
-            raw: Original command text.
-
-        Returns:
-            A :class:`ClockConstraint`, or ``None`` if parsing fails in
-            non-strict mode.
-        """
         name: str | None = None
         period: float | None = None
         waveform: list[float] = []
@@ -651,19 +535,6 @@ class SDCParser:
     def _parse_io_delay(
         self, tokens: list[str], line_num: int, raw: str
     ) -> list[IODelay]:
-        """Parse ``set_input_delay`` or ``set_output_delay``.
-
-        One command can target multiple ports via a Tcl brace list, so this
-        method returns a list of :class:`IODelay` objects.
-
-        Args:
-            tokens: Tokenised command words.
-            line_num: Source line number for error reporting.
-            raw: Original command text.
-
-        Returns:
-            List of :class:`IODelay` objects (empty on parse failure).
-        """
         delay_type = "input" if tokens[0] == "set_input_delay" else "output"
         clock = ""
         delay_value: float | None = None
@@ -726,18 +597,6 @@ class SDCParser:
     def _parse_timing_exception(
         self, tokens: list[str], line_num: int, raw: str
     ) -> TimingException | None:
-        """Parse ``set_false_path``, ``set_multicycle_path``, ``set_max_delay``,
-        or ``set_min_delay``.
-
-        Args:
-            tokens: Tokenised command words.
-            line_num: Source line number for error reporting.
-            raw: Original command text.
-
-        Returns:
-            A :class:`TimingException`, or ``None`` if parsing fails in
-            non-strict mode.
-        """
         exception_type = self._EXCEPTION_TYPE_MAP[tokens[0]]
         from_list: list[str] = []
         to_list: list[str] = []
@@ -782,16 +641,6 @@ class SDCParser:
     def _parse_float_list(
         self, token: str, line_num: int, raw: str
     ) -> list[float]:
-        """Parse a brace-enclosed or bare space-separated list of floats.
-
-        Args:
-            token: Token string, e.g. ``"{0.0 5.0}"`` or ``"0.0"``.
-            line_num: Source line for error context.
-            raw: Original command for error context.
-
-        Returns:
-            List of floats; empty list if any element cannot be converted.
-        """
         token = token.strip().strip("{}")
         parts = token.replace(",", " ").split()
         result: list[float] = []
@@ -808,14 +657,6 @@ class SDCParser:
 
 
 def _build_summary(cs: SDCConstraintSet) -> str:
-    """Render a human-readable summary of a parsed constraint set.
-
-    Args:
-        cs: The parsed constraint set.
-
-    Returns:
-        Formatted multi-line summary string.
-    """
     lines = [
         "=== SDC Constraint Summary ===",
         f"  Clocks              : {len(cs.clocks)}",
