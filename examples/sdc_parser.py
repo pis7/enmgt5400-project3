@@ -52,7 +52,6 @@ class SDCParser:
         self.strict = strict
 
     def parse_file(self, path):
-        # QUALITY ISSUE: should use pathlib.Path(path).open() not built-in open()
         with open(path, encoding="utf-8") as fh:
             return self.parse_string(fh.read())
 
@@ -141,7 +140,6 @@ class SDCParser:
     def _error(self, line_num, raw, msg):
         if self.strict:
             raise ParseError(line_num, msg)
-        # QUALITY ISSUE: should use logging.warning(), not print()
         print(f"WARNING line {line_num}: {msg} — skipping")
         return None
 
@@ -149,7 +147,6 @@ class SDCParser:
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 def print_summary(cs: SDCConstraintSet):
-    # QUALITY ISSUE: should use logging, not print()
     print(f"Clocks: {len(cs.clocks)}, IO delays: {len(cs.io_delays)}, "
           f"Unknown: {len(cs.unknown_cmds)}")
     for c in cs.clocks:
