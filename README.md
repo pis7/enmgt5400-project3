@@ -16,10 +16,9 @@ enmgt5400-project3/
 │       │   ├── SKILL.md            # Skill 2: ASIC file format validator
 │       │   └── format-rules.md     # Format-specific validity rules reference
 │       └── asic-tool-test/
-│           └── SKILL.md            # Skill 3: Test suite generation
+│           ├── SKILL.md            # Skill 3: Test suite generation
+│           └── test-patterns.md    # Fixture templates and stub patterns reference
 ├── CLAUDE.md                       # Annotated project instructions file
-├── main.py                         # Project entry point
-├── pyproject.toml                  # Python project configuration
 ├── README.md                       # This file
 ├── examples/
 │   ├── sdc_parser.py              # Example: SDC constraint parser (for review/test skills)
