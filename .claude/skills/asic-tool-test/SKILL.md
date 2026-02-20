@@ -9,11 +9,13 @@ Generate a pytest test framework skeleton for the following Python ASIC tool or 
 
 **Read the target file first.** Generate only what applies to its actual functionality — do not invent stubs for things that don't exist in the code.
 
+Do not generate a huge number of stubs — focus on the most important test cases that cover the core functionality, edge cases, and error handling. The goal is to reduce the amount of time the model needs to spend on this task while still providing a useful scaffold for the user to fill in.
+
 Consult [test-patterns.md](test-patterns.md) for fixture templates and stub patterns before generating code.
 
 ## Required Output
 
-Generate `test_<module_name>.py` alongside the target file (or in `tests/` if that directory exists).
+Generate `test_<module_name>.py` alongside the target file.
 
 The file has two parts:
 1. **Infrastructure** — complete and ready to use: imports, conftest-style fixtures, helper constants
