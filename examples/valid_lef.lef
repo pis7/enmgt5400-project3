@@ -1,0 +1,142 @@
+VERSION 5.8 ;
+BUSBITCHARS "[]" ;
+DIVIDERCHAR "/" ;
+
+# Layer definitions (technology LEF section)
+LAYER M1
+  TYPE ROUTING ;
+  DIRECTION HORIZONTAL ;
+  PITCH 0.280 ;
+  WIDTH 0.140 ;
+  SPACING 0.140 ;
+END M1
+
+LAYER M2
+  TYPE ROUTING ;
+  DIRECTION VERTICAL ;
+  PITCH 0.280 ;
+  WIDTH 0.140 ;
+  SPACING 0.140 ;
+END M2
+
+LAYER VIA1
+  TYPE CUT ;
+  SPACING 0.140 ;
+  WIDTH 0.140 ;
+END VIA1
+
+# Standard cell: NAND2X1
+MACRO NAND2X1
+  CLASS CORE ;
+  ORIGIN 0.000 0.000 ;
+  SIZE 1.120 BY 2.520 ;
+  SYMMETRY X Y ;
+
+  PIN A
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M1 ;
+        RECT 0.070 0.700 0.210 0.980 ;
+    END
+  END A
+
+  PIN B
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M1 ;
+        RECT 0.070 1.260 0.210 1.540 ;
+    END
+  END B
+
+  PIN Y
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    ANTENNADIFFAREA 0.0520 LAYER M1 ;
+    PORT
+      LAYER M1 ;
+        RECT 0.910 0.560 1.050 1.960 ;
+    END
+  END Y
+
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER M1 ;
+        RECT 0.000 2.240 1.120 2.520 ;
+    END
+  END VDD
+
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER M1 ;
+        RECT 0.000 0.000 1.120 0.280 ;
+    END
+  END VSS
+
+  OBS
+    LAYER M1 ;
+      RECT 0.210 0.280 0.910 2.240 ;
+  END
+
+END NAND2X1
+
+# Standard cell: DFFX1
+MACRO DFFX1
+  CLASS CORE ;
+  ORIGIN 0.000 0.000 ;
+  SIZE 2.800 BY 2.520 ;
+  SYMMETRY X Y ;
+
+  PIN D
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M1 ;
+        RECT 0.070 0.700 0.210 0.980 ;
+    END
+  END D
+
+  PIN CK
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M1 ;
+        RECT 0.070 1.260 0.210 1.540 ;
+    END
+  END CK
+
+  PIN Q
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M1 ;
+        RECT 2.590 0.560 2.730 1.960 ;
+    END
+  END Q
+
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER M1 ;
+        RECT 0.000 2.240 2.800 2.520 ;
+    END
+  END VDD
+
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER M1 ;
+        RECT 0.000 0.000 2.800 0.280 ;
+    END
+  END VSS
+
+END DFFX1
+
+END LIBRARY

@@ -1,0 +1,75 @@
+VERSION 5.8 ;
+
+# INTENTIONALLY INVALID LEF
+# Errors introduced for validate-asic-file skill testing:
+#   MACRO NAND2X1: missing ORIGIN statement (REQUIRED)
+#   MACRO NAND2X1: CLASS value "CELL" is not a valid LEF class keyword (REQUIRED)
+#   MACRO BUFX2:   missing END BUFX2 — block is never closed (REQUIRED)
+#   PIN Y in NAND2X1: references undefined layer M3 (REQUIRED)
+
+LAYER M1
+  TYPE ROUTING ;
+  WIDTH 0.140 ;
+END M1
+
+LAYER VIA1
+  TYPE CUT ;
+  WIDTH 0.140 ;
+END VIA1
+
+# ERROR: CLASS "CELL" is not a valid LEF CLASS keyword (should be CORE)
+# ERROR: ORIGIN statement is missing from this MACRO
+MACRO NAND2X1
+  CLASS CELL ;
+  SIZE 1.120 BY 2.520 ;
+  SYMMETRY X Y ;
+
+  PIN A
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M1 ;
+        RECT 0.070 0.700 0.210 0.980 ;
+    END
+  END A
+
+  PIN Y
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      # ERROR: M3 is not defined anywhere in this file
+      LAYER M3 ;
+        RECT 0.910 0.560 1.050 1.960 ;
+    END
+  END Y
+
+END NAND2X1
+
+# ERROR: this MACRO block is never closed — missing END BUFX2
+MACRO BUFX2
+  CLASS CORE ;
+  ORIGIN 0.000 0.000 ;
+  SIZE 0.840 BY 2.520 ;
+  SYMMETRY X Y ;
+
+  PIN A
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M1 ;
+        RECT 0.070 0.700 0.210 0.980 ;
+    END
+  END A
+
+  PIN Y
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER M1 ;
+        RECT 0.630 0.560 0.770 1.960 ;
+    END
+  END Y
+
+  # Missing: END BUFX2
+
+END LIBRARY

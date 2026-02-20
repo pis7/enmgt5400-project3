@@ -1,0 +1,40 @@
+VERSION 5.8 ;
+NAMESCASESENSITIVE ON ;
+DIVIDERCHAR "/" ;
+BUSBITCHARS "[]" ;
+
+DESIGN sample_design ;
+
+UNITS DISTANCE MICRONS 1000 ;
+
+DIEAREA ( 0 0 ) ( 50000 50000 ) ;
+
+ROWS
+  ROW ROW_0 core 0 2520 FS DO 17 BY 1 STEP 1120 0 ;
+  ROW ROW_1 core 0 5040 N  DO 17 BY 1 STEP 1120 0 ;
+  ROW ROW_2 core 0 7560 FS DO 17 BY 1 STEP 1120 0 ;
+END ROWS
+
+COMPONENTS 5 ;
+  - U1 NAND2X1 + PLACED ( 1120 2520 ) N ;
+  - U2 NAND2X1 + PLACED ( 2240 2520 ) N ;
+  - U3 NOR2X1  + PLACED ( 3360 2520 ) N ;
+  - data_reg_0 DFFX1 + PLACED ( 4480 2520 ) N ;
+  - valid_reg  DFFX1 + PLACED ( 5600 2520 ) N ;
+END COMPONENTS
+
+PINS 4 ;
+  - clk   + NET clk   + DIRECTION INPUT  + USE SIGNAL + PLACED ( 0 25000 ) W + LAYER M1 ( -70 -70 ) ( 70 70 ) ;
+  - rst_n + NET rst_n + DIRECTION INPUT  + USE SIGNAL + PLACED ( 0 26000 ) W + LAYER M1 ( -70 -70 ) ( 70 70 ) ;
+  - data_in  + NET data_in  + DIRECTION INPUT  + USE SIGNAL + PLACED ( 0 27000 ) W + LAYER M1 ( -70 -70 ) ( 70 70 ) ;
+  - data_out + NET data_out + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 50000 25000 ) E + LAYER M1 ( -70 -70 ) ( 70 70 ) ;
+END PINS
+
+NETS 4 ;
+  - clk ( PIN clk ) ( data_reg_0 CK ) ( valid_reg CK ) + USE CLOCK ;
+  - rst_n ( PIN rst_n ) ( U1 B ) ;
+  - n1 ( U1 Y ) ( U2 A ) ( U3 A ) ;
+  - data_out ( U3 Y ) ( PIN data_out ) ;
+END NETS
+
+END DESIGN

@@ -1,0 +1,31 @@
+VERSION 5.8 ;
+DESIGN sample_design ;
+
+UNITS DISTANCE MICRONS 1000 ;
+
+# INTENTIONALLY INVALID DEF
+# Errors introduced for validate-asic-file skill testing:
+#   COMPONENTS section: declares 5 but only defines 3 entries (count mismatch)
+#   U2 placement: coordinates are floating-point, not integers (2240.5 is invalid)
+#   NETS section: missing END NETS — section is never closed
+#   File is missing END DESIGN
+
+COMPONENTS 5 ;
+  - U1 NAND2X1 + PLACED ( 1120 2520 ) N ;
+  # ERROR: floating-point coordinate 2240.5 — DEF requires integers
+  - U2 NAND2X1 + PLACED ( 2240.5 2520 ) N ;
+  - data_reg_0 DFFX1 + PLACED ( 4480 2520 ) N ;
+  # ERROR: only 3 components defined, but header declared 5
+END COMPONENTS
+
+PINS 2 ;
+  - clk + NET clk + DIRECTION INPUT + USE SIGNAL + PLACED ( 0 25000 ) W + LAYER M1 ( -70 -70 ) ( 70 70 ) ;
+  - data_out + NET data_out + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 50000 25000 ) E + LAYER M1 ( -70 -70 ) ( 70 70 ) ;
+END PINS
+
+# ERROR: NETS section opened but END NETS is missing
+NETS 2 ;
+  - clk ( PIN clk ) ( data_reg_0 CK ) + USE CLOCK ;
+  - n1 ( U1 Y ) ( U2 A ) ;
+
+# ERROR: END DESIGN is missing — file ends abruptly

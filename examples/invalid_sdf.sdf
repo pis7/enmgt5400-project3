@@ -1,0 +1,50 @@
+(DELAYFILE
+  (SDFVERSION "3.0")
+  (DESIGN "sample_design")
+  ; INTENTIONALLY INVALID SDF
+  ; Errors introduced for validate-asic-file skill testing:
+  ;   (TIMESCALE ...) is missing — REQUIRED before any CELL blocks
+  ;   U1 IOPATH: timing values contain units inside triplets (1.0ns is invalid — should be bare 1.0)
+  ;   U2 IOPATH: three delay arguments instead of exactly two
+  ;   U3 block: unbalanced parentheses — closing ) for CELL is missing
+
+  (CELL
+    (CELLTYPE "NAND2X1")
+    (INSTANCE U1)
+    (DELAY
+      (ABSOLUTE
+        ; ERROR: units inside triplet — "0.05ns:0.07ns:0.10ns" should be "0.05:0.07:0.10"
+        (IOPATH A Y (0.05ns:0.07ns:0.10ns) (0.04ns:0.06ns:0.09ns))
+        (IOPATH B Y (0.05:0.07:0.10) (0.04:0.06:0.09))
+      )
+    )
+  )
+
+  (CELL
+    (CELLTYPE "NAND2X1")
+    (INSTANCE U2)
+    (DELAY
+      (ABSOLUTE
+        ; ERROR: IOPATH has 3 delay arguments — must be exactly 2 (rise, fall)
+        (IOPATH A Y (0.05:0.07:0.10) (0.04:0.06:0.09) (0.03:0.05:0.08))
+        (IOPATH B Y (0.05:0.07:0.10) (0.04:0.06:0.09))
+      )
+    )
+  )
+
+  ; ERROR: closing ) for this CELL block is missing — unbalanced parentheses
+  (CELL
+    (CELLTYPE "DFFX1")
+    (INSTANCE data_reg_0)
+    (DELAY
+      (ABSOLUTE
+        (IOPATH (posedge CK) Q (0.12:0.16:0.22) (0.10:0.14:0.19))
+      )
+    )
+    (TIMINGCHECK
+      (SETUP D (posedge CK) (0.04:0.05:0.06))
+      (HOLD  D (posedge CK) (0.01:0.01:0.02))
+    )
+  ; missing closing ) for CELL
+
+)

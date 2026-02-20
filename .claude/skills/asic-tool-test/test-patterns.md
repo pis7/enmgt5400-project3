@@ -1,8 +1,11 @@
 # ASIC Test Patterns Reference
 
-Load this file when generating test suites to get fixture templates and test patterns.
+Load this file when generating test skeletons to get fixture templates and stub patterns.
+Fixtures are generated complete. Test methods are generated as stubs (docstring + `pass`).
 
-## Sample ASIC File Content Fixtures
+---
+
+## Sample ASIC File Content Fixtures (generate complete)
 
 Use these as starting points. Trim to only what is relevant to the module under test.
 
@@ -109,8 +112,8 @@ def sample_spef() -> str:
 *R_UNIT 1 OHM
 *D_NET n1 0.050
 *CONN
-*I U1:Y O
-*I U2:A I
+*D U1:Y
+*L U2:A
 *CAP
 1 U1:Y 0.020
 2 U2:A 0.030
@@ -120,7 +123,7 @@ def sample_spef() -> str:
 """
 ```
 
-## Edge Case Fixtures
+## Edge Case Fixtures (generate complete)
 
 ```python
 @pytest.fixture
@@ -158,100 +161,198 @@ def sample_file(tmp_path, sample_sdc) -> Path:
     return f
 ```
 
-## Test Class Templates
+---
 
-### TestParsing
+## Test Stub Templates (generate with docstring + `pass`)
+
+Every test method follows this pattern:
+```python
+def test_<category>_<what>_<condition>(self, <fixtures>):
+    """<One-sentence summary of what is verified.>
+
+    Given: <preconditions and setup>
+    Then:  <concrete assertion — name the expected value or behavior>
+    """
+    pass
+```
+
+### TestParsing stubs
 ```python
 class TestParsing:
     def test_parse_returns_correct_type(self, sample_file, parser):
-        result = parser.parse_file(sample_file)
-        assert isinstance(result, ExpectedTopLevelType)
+        """Verify parse_file returns an instance of the correct top-level dataclass.
+
+        Given: a valid SDC file written to tmp_path
+        Then:  isinstance(result, <TopLevelClass>) is True
+        """
+        pass
+
+    def test_parse_extracts_clock_count(self, sample_file, parser):
+        """Verify the correct number of clocks is parsed from the file.
+
+        Given: sample_file contains exactly one create_clock statement
+        Then:  len(result.clocks) == 1
+        """
+        pass
 
     def test_parse_extracts_clock_period(self, sample_file, parser):
-        result = parser.parse_file(sample_file)
-        assert len(result.clocks) == 1
-        assert result.clocks[0].period == pytest.approx(2.0)
+        """Verify the clock period value is correctly extracted.
 
-    @pytest.mark.parametrize("line,expected_name", [
-        ("create_clock -name clk -period 2.0 [get_ports clk]", "clk"),
-        ("create_clock -period 5.0 [get_ports io_clk]", "io_clk"),
+        Given: sample_file defines clk with -period 2.0
+        Then:  result.clocks[0].period == pytest.approx(2.0)
+        """
+        pass
+
+    @pytest.mark.parametrize("period,name", [
+        (2.0, "clk"),
+        (5.0, "clk_io"),
+        (8.0, "clk_slow"),
     ])
-    def test_parse_clock_name_extracted(self, line, expected_name, parser):
-        result = parser.parse_string(line)
-        assert result.clocks[0].name == expected_name
+    def test_parse_multiple_clock_periods(self, tmp_path, parser, period, name):
+        """Verify period and name are correctly extracted for various create_clock inputs.
+
+        Given: a single-line SDC string with -period <period> and -name <name>
+        Then:  result.clocks[0].period == pytest.approx(period)
+               result.clocks[0].name == name
+        """
+        pass
+
+    def test_parse_string_equivalent_to_parse_file(self, sample_sdc, sample_file, parser):
+        """Verify parse_string and parse_file produce identical results.
+
+        Given: sample_sdc string and sample_file contain the same content
+        Then:  parse_string(sample_sdc) equals parse_file(sample_file) in all fields
+        """
+        pass
 ```
 
-### TestErrorHandling
+### TestErrorHandling stubs
 ```python
 class TestErrorHandling:
-    def test_strict_mode_raises_with_line_number(self, tmp_path, malformed_sdc):
-        f = tmp_path / "bad.sdc"
-        f.write_text(malformed_sdc)
-        parser = SDCParser(strict=True)
-        with pytest.raises(ParseError) as exc_info:
-            parser.parse_file(f)
-        assert exc_info.value.line_num > 0, "ParseError must include line number"
+    def test_strict_mode_raises_parse_error(self, tmp_path, malformed_sdc):
+        """Verify strict mode raises ParseError on malformed input.
+
+        Given: a file containing malformed_sdc (create_clock missing -period)
+               and a parser created with strict=True
+        Then:  parser.parse_file raises ParseError
+        """
+        pass
+
+    def test_strict_mode_error_includes_line_number(self, tmp_path, malformed_sdc):
+        """Verify the raised ParseError includes a non-zero line number.
+
+        Given: same setup as test_strict_mode_raises_parse_error
+        Then:  exc_info.value.line_num > 0
+        """
+        pass
 
     def test_lenient_mode_logs_warning(self, tmp_path, malformed_sdc, caplog):
-        f = tmp_path / "bad.sdc"
-        f.write_text(malformed_sdc)
-        parser = SDCParser(strict=False)
-        with caplog.at_level(logging.WARNING):
-            result = parser.parse_file(f)
-        assert any("WARNING" in r.levelname for r in caplog.records)
-        assert result is not None, "Lenient mode should return partial results"
+        """Verify lenient mode logs a WARNING and returns partial results instead of raising.
+
+        Given: a file containing malformed_sdc and a parser with strict=False
+        Then:  at least one WARNING record is emitted
+               result is not None
+        """
+        pass
 
     def test_file_not_found_raises(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
-            SDCParser().parse_file(tmp_path / "nonexistent.sdc")
+        """Verify FileNotFoundError is raised for a non-existent path.
+
+        Given: a path that does not exist on disk
+        Then:  parser.parse_file raises FileNotFoundError
+        """
+        pass
 
     def test_empty_file_returns_empty_model(self, empty_file):
-        result = SDCParser().parse_file(empty_file)
-        assert result is not None
-        assert len(result.clocks) == 0
+        """Verify an empty file returns a valid but empty top-level model.
+
+        Given: a zero-byte file
+        Then:  result is not None and all collection fields have length 0
+        """
+        pass
 ```
 
-### TestEdgeCases
+### TestEdgeCases stubs
 ```python
 class TestEdgeCases:
-    def test_windows_line_endings(self, tmp_path, windows_line_endings):
-        f = tmp_path / "crlf.sdc"
-        f.write_bytes(windows_line_endings.encode())
-        result = SDCParser().parse_file(f)
-        assert len(result.clocks) >= 1, "Should parse despite CRLF endings"
+    def test_windows_line_endings_parsed_correctly(self, tmp_path, windows_line_endings):
+        """Verify the parser handles CRLF line endings without error.
+
+        Given: valid SDC content with \\r\\n line endings written to a temp file
+        Then:  result is not None and contains the expected clock
+        """
+        pass
 
     def test_backslash_escaped_identifiers(self, tmp_path, backslash_escaped_names):
-        f = tmp_path / "escaped.v"
-        f.write_text(backslash_escaped_names)
-        # Parser must not crash on escaped identifiers
-        result = VerilogParser().parse_file(f)
-        assert result is not None
+        """Verify backslash-escaped Verilog identifiers are preserved including trailing space.
+
+        Given: a Verilog netlist with \\bus[0]  (note trailing space in source)
+        Then:  the parsed identifier is exactly '\\bus[0] ' (with trailing space)
+        """
+        pass
+
+    def test_inline_comments_ignored(self, tmp_path):
+        """Verify that # comments in SDC (or ; comments in SDF) do not affect parsed output.
+
+        Given: a file where every data line has a trailing comment
+        Then:  result is identical to parsing the same file without comments
+        """
+        pass
 
     @pytest.mark.slow
-    def test_large_file_performance(self, tmp_path):
-        """Parser handles 100 k-line files in under 10 seconds."""
-        import time
-        content = "create_clock -name clk -period 2.0 [get_ports clk]\n" * 100_000
-        f = tmp_path / "large.sdc"
-        f.write_text(content)
-        start = time.perf_counter()
-        SDCParser().parse_file(f)
-        elapsed = time.perf_counter() - start
-        assert elapsed < 10.0, f"Parsing took {elapsed:.1f}s, expected < 10s"
+    def test_large_file_completes_within_time_limit(self, tmp_path):
+        """Verify the parser handles 100 k-line files in under 10 seconds.
+
+        Given: a file with 100 000 identical valid lines written to tmp_path
+        Then:  time.perf_counter() elapsed < 10.0 seconds
+        """
+        pass
 ```
 
-### TestNumericPrecision
+### TestNumericPrecision stubs
 ```python
 class TestNumericPrecision:
     def test_timing_value_float_precision(self, sample_file, parser):
-        result = parser.parse_file(sample_file)
-        assert result.clocks[0].period == pytest.approx(2.0, abs=1e-9)
+        """Verify floating-point timing values are preserved to nanosecond precision.
 
-    def test_negative_slack_allowed(self, tmp_path):
-        """Negative timing values (hold violations) must parse without error."""
-        content = "set_input_delay -clock clk -min -0.050 [get_ports din]\n"
-        f = tmp_path / "neg.sdc"
-        f.write_text(content)
-        result = SDCParser().parse_file(f)
-        assert result.io_delays[0].min_delay == pytest.approx(-0.050, abs=1e-9)
+        Given: sample_file with a clock period of 2.0 ns
+        Then:  result.clocks[0].period == pytest.approx(2.0, abs=1e-9)
+        """
+        pass
+
+    def test_negative_delay_allowed(self, tmp_path):
+        """Verify negative timing values (e.g., hold margins) parse without error.
+
+        Given: a file with set_input_delay -min -0.050 [get_ports din]
+        Then:  the parsed min_delay value == pytest.approx(-0.050, abs=1e-9)
+        """
+        pass
+```
+
+### TestCLI stubs
+```python
+class TestCLI:
+    def test_cli_json_output_is_valid(self, tmp_path, sample_file, capsys):
+        """Verify --format json produces valid JSON on stdout.
+
+        Given: sample_file passed to the CLI with --format json
+        Then:  json.loads(captured stdout) succeeds without raising
+        """
+        pass
+
+    def test_cli_missing_input_exits_nonzero(self, tmp_path, capsys):
+        """Verify the CLI exits with a non-zero code when --input is missing.
+
+        Given: CLI invoked without --input argument
+        Then:  SystemExit is raised with code != 0
+        """
+        pass
+
+    def test_cli_strict_flag_propagates(self, tmp_path, malformed_sdc, capsys):
+        """Verify --strict causes the CLI to exit non-zero on malformed input.
+
+        Given: malformed_sdc written to a file, CLI invoked with --strict
+        Then:  SystemExit raised with code != 0
+        """
+        pass
 ```

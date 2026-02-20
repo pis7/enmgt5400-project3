@@ -59,7 +59,7 @@ LLM training data. Without this reference, Claude is likely to hallucinate incor
 format details — for example, confusing LEF (library-level physical abstracts) with DEF
 (design-level placed/routed data), or producing syntactically invalid SDC commands. By
 providing concise descriptions and key syntax patterns for each format, Claude can
-generate accurate parsers and transformations. This section also serves as a shared
+generate generate and analyze related code. This section also serves as a shared
 vocabulary between the developer and Claude, so when a conversation references "Liberty
 timing arcs" or "SPEF parasitics," both sides understand exactly what is meant. -->
 ## ASIC File Formats Reference
@@ -135,7 +135,11 @@ means slash commands like /review-asic-tool that reference MCP tools will work c
 Claude will call analyze_code_complexity and generate_docstrings via MCP rather than trying
 to reimplement that analysis logic itself. Without this section, Claude would have no way
 to know that these tools are available and would fall back on manual AST inspection, which
-duplicates functionality that already exists in the MCP server. -->
+duplicates functionality that already exists in the MCP server.
+
+The Available Skills section immediately below is equally important: it lists all three
+project skills (/review-asic-tool, /validate-asic-file, /asic-tool-test) so Claude can
+suggest the right skill proactively when the user describes a task that matches one. -->
 ## MCP Server Integration
 
 This project uses the `dev-workflow-server` MCP server from ENMGT 5400 Project 2.
@@ -162,7 +166,21 @@ This project uses the `dev-workflow-server` MCP server from ENMGT 5400 Project 2
 
 ---
 
-<!-- ANNOTATION #6 (BONUS) — Behavioral Guardrails
+## Available Claude Code Skills
+
+Three skills are available in this project. Suggest the relevant skill proactively when the user's task matches.
+
+| Skill | Argument | When to use |
+|-------|----------|-------------|
+| `/review-asic-tool` | `<python-file-or-dir>` | User wants a code review of a Python ASIC tool; calls MCP `analyze_code_complexity` + `generate_docstrings` automatically |
+| `/validate-asic-file` | `<asic-file-path>` | User wants to check whether an SDC, Liberty, LEF, DEF, SDF, SPEF, or Verilog netlist file is structurally valid before feeding it to an EDA tool |
+| `/asic-tool-test` | `<python-file-path>` | User wants to scaffold tests for a Python ASIC tool; generates complete fixtures and infrastructure plus stub test methods with Given/Then docstrings — user fills in the assertion bodies |
+
+**Path note for `/review-asic-tool`**: When calling the MCP tools, resolve the argument to an absolute path (using the current working directory) before passing it — the MCP server's allowed directory is the parent folder above this project.
+
+---
+
+<!-- ANNOTATION #6 — Behavioral Guardrails
 WHY THIS SECTION EXISTS: This is a "behavioral guardrails" pattern recommended by
 Anthropic for CLAUDE.md files. These short directives prevent common failure modes
 specific to the ASIC domain. For example, without the "never suggest running EDA tools"

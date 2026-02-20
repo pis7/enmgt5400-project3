@@ -1,0 +1,49 @@
+*SPEF "IEEE 1481-1998"
+*DESIGN "sample_design"
+*DATE "2024-11-15 10:30:00"
+*VENDOR "OpenSTA"
+*PROGRAM "write_spef"
+*VERSION "2.6.0"
+*DESIGN_FLOW "ROUTE_FINISHED"
+*DIVIDER /
+*DELIMITER :
+*BUS_DELIMITER []
+*T_UNIT 1 NS
+*C_UNIT 1 FF
+*R_UNIT 1 OHM
+# INTENTIONALLY INVALID SPEF
+# Errors introduced for validate-asic-file skill testing:
+#   *L_UNIT is missing from the header (REQUIRED field)
+#   Net *1 (clk): *END is missing — block is never closed (REQUIRED)
+#   Net *2 (n1): capacitance entry has non-numeric value "short" (REQUIRED: must be numeric >= 0)
+#   Net *2 (n1): *RES entry has wrong field count — 3 fields instead of 4 (REQUIRED format)
+
+*D_NET clk 2.850
+*CONN
+*D sample_design:clk
+*L data_reg_0:CK
+*L valid_reg:CK
+*CAP
+1 sample_design:clk 0.620
+2 data_reg_0:CK 1.050
+3 valid_reg:CK 1.180
+*RES
+1 sample_design:clk data_reg_0:CK 3.200
+2 data_reg_0:CK valid_reg:CK 2.750
+# ERROR: *END is missing for this *D_NET block
+
+*D_NET n1 1.430
+*CONN
+*D U1:Y
+*L U2:A
+*L U3:A
+*CAP
+1 U1:Y 0.310
+# ERROR: "short" is not a numeric capacitance value
+2 U2:A short
+3 U3:A 0.540
+*RES
+# ERROR: *RES entry has 3 fields (index node1 value) — must have 4 (index node1 node2 value)
+1 U1:Y 2.100
+2 U2:A U3:A 1.850
+*END
